@@ -3,6 +3,17 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+*.html
+*.po
+*.sw[po]
+
+# 忽略本地化文件
+locale/
+# 忽略所有静态文件
+static/
+# 忽略所有模板文件
+templates/
+
 # C extensions
 *.so
 
