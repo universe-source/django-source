@@ -133,14 +133,17 @@ class WSGIRequest(HttpRequest):
 
 
 class WSGIHandler(base.BaseHandler):
+    # 系统启动的瞬间, 初始化
     request_class = WSGIRequest
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # 加载中间件
         self.load_middleware()
 
     def __call__(self, environ, start_response):
         set_script_prefix(get_script_name(environ))
+        # 0 发送信号, 通知处理, 该信号有django应用使用开发者receieve
         signals.request_started.send(sender=self.__class__, environ=environ)
         request = self.request_class(environ)
         response = self.get_response(request)

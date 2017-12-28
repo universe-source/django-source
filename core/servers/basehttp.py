@@ -35,12 +35,16 @@ def get_internal_wsgi_application():
     If settings.WSGI_APPLICATION is not set (is ``None``), return
     whatever ``django.core.wsgi.get_wsgi_application`` returns.
     """
+    # 1 默认
     from django.conf import settings
     app_path = getattr(settings, 'WSGI_APPLICATION')
     if app_path is None:
         return get_wsgi_application()
 
+    # 2 即: manage.py runserver实际上仍旧使用到了wsgi服务
     try:
+        # 导入wsgi.py并返回get_wsgi_application函数对象
+        # 实际上, 返回WSGIHandler对象
         return import_string(app_path)
     except ImportError as err:
         print('Error:', err)
@@ -57,14 +61,19 @@ def is_broken_pipe_error():
 
 
 class WSGIServer(simple_server.WSGIServer):
-    """BaseHTTPServer that implements the Python WSGI protocol"""
+    """BaseHTTPServer that implements the Python WSGI protocol
+    继承关系: WSGIServer-->HTTPServer-->TCPServer-->BaseServer
+    """
 
     request_queue_size = 10
 
-    def __init__(self, *args, ipv6=False, allow_reuse_address=True, **kwargs):
+    def __init__(self, *args, **kwargs):
+        ipv6 = kwargs.pop('ipv6', False)
+        allow_reuse_address = kwargs.pop('allow_reuse_address', True)
         if ipv6:
             self.address_family = socket.AF_INET6
         self.allow_reuse_address = allow_reuse_address
+        # 在socketserver.TCPServer中:创建信号量, 创建 TCP 套接字, 绑定地址和端口, 监听
         super().__init__(*args, **kwargs)
 
     def handle_error(self, request, client_address):
@@ -137,7 +146,14 @@ class WSGIRequestHandler(simple_server.WSGIRequestHandler):
         return super().get_environ()
 
     def handle(self):
-        """Copy of WSGIRequestHandler.handle() but with different ServerHandler"""
+        """Copy of WSGIRequestHandler.handle() but with different ServerHandler
+        Note: 该方法在对象被实例化的同时调用, 继承体系:
+            WSGIRequestHandler-->simple_server.WSGIRequestHandler
+                              -->BaseHTTPRequestHandler
+                              -->SocketServer.StreamRequestHandler
+                              -->BaseRequestHandler
+        """
+        # 1 利用rfile/wfile读写数据
         self.raw_requestline = self.rfile.readline(65537)
         if len(self.raw_requestline) > 65536:
             self.requestline = ''
@@ -149,19 +165,28 @@ class WSGIRequestHandler(simple_server.WSGIRequestHandler):
         if not self.parse_request():  # An error code has been sent, just exit
             return
 
+        # 2 get_environ获取与客户端请求相关信息
         handler = ServerHandler(
             self.rfile, self.wfile, self.get_stderr(), self.get_environ()
         )
         handler.request_handler = self      # backpointer for logging
+        # 3 运行run, 传递application, WSGIHandler, 用于连接Web Server和python应用服务
+        #   继承体系:ServerHandler->simple_server.ServerHandler->BaseHandler
+        #   封装: 封装了application--WSGIHandler实例, application()调用__call__来完成
         handler.run(self.server.get_app())
 
 
 def run(addr, port, wsgi_handler, ipv6=False, threading=False, server_cls=WSGIServer):
+    # 1 WSGIServer实例对象
     server_address = (addr, port)
     if threading:
+        # 1.1 使用type来创建一个WSGIServer类, 相当于类的重新定义
+        # 其中ThreadingMixIn: 为每一个客户端派发一个新的线程去专门处理任务
+        # 1.2 其中Mixin编程: 多个类的功能单元进行组合利用的方式
         httpd_cls = type('WSGIServer', (socketserver.ThreadingMixIn, server_cls), {})
     else:
         httpd_cls = server_cls
+    # 2 初始化和实例化"服务类型"
     httpd = httpd_cls(server_address, WSGIRequestHandler, ipv6=ipv6)
     if threading:
         # ThreadingMixIn.daemon_threads indicates how threads will behave on an
@@ -171,5 +196,16 @@ def run(addr, port, wsgi_handler, ipv6=False, threading=False, server_cls=WSGISe
         # and will prevent the need to kill the server manually if a thread
         # isn't terminating correctly.
         httpd.daemon_threads = True
+    # 3 设置application属性(application->handler->RequestHandler), 处理request
     httpd.set_app(wsgi_handler)
+    # 4 运行python库socketserver中的方法(利用selector来完成网络处理)
+    #   a. 选择合适的服务类型, 例如WSGIServer->wsgiref.WSGIServer->http.TCPServer
+    #   b. 创建请求处理器(RequestHandler), 使用handle来处理客户端发送过来的连接
+    #   c. 调用server_forever多次处理用户请求
+    #       c.1: 实例本身绑定到select的read事件集中
+    #       c.2: 使用select完成多路复用
+    #       c.3: 一旦 Read 事件触发, 获取请求, 处理请求
+    #       c.4: 请求会在ThreadingMinIn以多线程方式处理(如果使用的话), 否则串行
+    #       c.5: 每一个请求在finish_request都会实例化WSGIRequestHandler
+    #       c.6: handler->顶层基类 BaseRequestHandler 实例化会立刻调用setup/handle
     httpd.serve_forever()

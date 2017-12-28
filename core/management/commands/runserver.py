@@ -22,6 +22,9 @@ naiveip_re = re.compile(r"""^(?:
 
 
 class Command(BaseCommand):
+    """
+    @function: 继承BaseCommand, 添加自定义参数, 重写handle方法, 实现webserver
+    """
     help = "Starts a lightweight Web server for development."
 
     # Validation is called explicitly each time the server is reloaded.
@@ -35,18 +38,23 @@ class Command(BaseCommand):
     server_cls = WSGIServer
 
     def add_arguments(self, parser):
+        """重写add_arugments方法"""
+        # 指定runserver的host/port
         parser.add_argument(
             'addrport', nargs='?',
             help='Optional port number, or ipaddr:port'
         )
+        # 是否支持ipv6
         parser.add_argument(
             '--ipv6', '-6', action='store_true', dest='use_ipv6',
             help='Tells Django to use an IPv6 address.',
         )
+        # 是否启用多线程(每来一个用户, 创建一个线程)
         parser.add_argument(
             '--nothreading', action='store_false', dest='use_threading',
             help='Tells Django to NOT use threading.',
         )
+        # 是否自动重载
         parser.add_argument(
             '--noreload', action='store_false', dest='use_reloader',
             help='Tells Django to NOT use the auto-reloader.',
@@ -65,9 +73,11 @@ class Command(BaseCommand):
         return get_internal_wsgi_application()
 
     def handle(self, *args, **options):
+        # 1 开启DEBUG或者配置ALLOW_HOSTS, 其中默认端口为8000
         if not settings.DEBUG and not settings.ALLOWED_HOSTS:
             raise CommandError('You must set settings.ALLOWED_HOSTS if DEBUG is False.')
 
+        # 2 host/port配置
         self.use_ipv6 = options['use_ipv6']
         if self.use_ipv6 and not socket.has_ipv6:
             raise CommandError('Your Python does not support IPv6.')
@@ -93,27 +103,33 @@ class Command(BaseCommand):
         if not self.addr:
             self.addr = self.default_addr_ipv6 if self.use_ipv6 else self.default_addr
             self._raw_ipv6 = self.use_ipv6
+        # 3 调用run方法
         self.run(**options)
 
     def run(self, **options):
         """Run the server, using the autoreloader if needed."""
         use_reloader = options['use_reloader']
 
+        # 1 main对inner_run做了一层包装, 真正的 HTTP Server处理逻辑见inner_run函数
         if use_reloader:
-            # 未设置--noreload时执行, 封装 self.inner_run, 创建一个子线程
+            # 1.0 未设置--noreload时执行, 封装 self.inner_run, 创建一个子线程
             print('Debug4: {} reloader:'.format(__file__), options)
             autoreload.main(self.inner_run, None, options)
         else:
+            # 1.1 inner_run
             print('Debug4: {} inner(noreloader):'.format(__file__), options)
             self.inner_run(None, **options)
 
     def inner_run(self, *args, **options):
+        # 1 配置工作
         # If an exception was silenced in ManagementUtility.execute in order
         # to be raised in the child process, raise it now.
         print('Debug6: {} 正式执行run函数'.format(__file__), os.getpid())
-        print('Debug7: ---------------正常输出--------------')
+        print('Debug6.0: ---------------正常输出--------------')
         autoreload.raise_last_exception()
 
+        # django 默认开启threading, 允许在开发服务器中使用多线程
+        # 可以通过选项: --nothreading关闭
         threading = options['use_threading']
         # 'shutdown_message' is a stealth option.
         shutdown_message = options.get('shutdown_message', '')
@@ -139,10 +155,16 @@ class Command(BaseCommand):
             "quit_command": quit_command,
         })
 
+        # 2 主要处理逻辑
         try:
-            # 调用contrib.staticfiles.management.commands.runserver
+            # 2.1 获取handler, 实际获取get_internal_wsgi_application 返回application
+            #       类型: WSGIHandler(实现WSGI 协议的对象)
+            #       功能: 处理 Request请求
             handler = self.get_handler(*args, **options)
-            # 开始正式进入core.servers.basehttp:  HTTP, 其中server_cls=WSGIServer
+            # 2.2 runserver启动
+            # 开始正式进入core.servers.basehttp.run
+            # HTTP, 其中server_cls=WSGIServer使用wsgiref模块来实现HTTP
+            # 功能, 类: wsgiref.simple_server.WSGIServer
             run(self.addr, int(self.port), handler,
                 ipv6=self.use_ipv6, threading=threading, server_cls=self.server_cls)
         except socket.error as e:
