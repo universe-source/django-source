@@ -14,6 +14,7 @@ def curry(_curried_func, *args, **kwargs):
 
 class cached_property:
     """
+    属性缓存装饰器, 避免下一次再次调用__get__方法
     Decorator that converts a method with a single self argument into a
     property cached on the instance.
 
@@ -22,7 +23,9 @@ class cached_property:
     """
     def __init__(self, func, name=None):
         self.func = func
+        # doc string
         self.__doc__ = getattr(func, '__doc__')
+        # function name
         self.name = name or func.__name__
 
     def __get__(self, instance, cls=None):
@@ -30,6 +33,7 @@ class cached_property:
         Call the function and put the return value in instance.__dict__ so that
         subsequent attribute access on the instance returns the cached value
         instead of calling cached_property.__get__().
+        非资料描述器.
         """
         if instance is None:
             return self

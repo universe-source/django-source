@@ -65,8 +65,11 @@ class LimitedStream:
 
 class WSGIRequest(HttpRequest):
     def __init__(self, environ):
+        # 获取URL 资源对应的物理资源
         script_name = get_script_name(environ)
         path_info = get_path_info(environ)
+        print('Debug 2.0:', __file__, 'Script_name:{}, Path_info:{}'.format(
+            script_name, path_info))
         if not path_info:
             # Sometimes PATH_INFO exists, but is empty (e.g. accessing
             # the SCRIPT_NAME URL without a trailing slash). We really need to
@@ -106,6 +109,7 @@ class WSGIRequest(HttpRequest):
 
     @cached_property
     def GET(self):
+        """使用cached_property, 一旦__dict__中存在GET, 下一次不会调用该方法"""
         # The WSGI spec says 'QUERY_STRING' may be absent.
         raw_query_string = get_bytes_from_wsgi(self.environ, 'QUERY_STRING', '')
         return QueryDict(raw_query_string, encoding=self._encoding)
@@ -133,6 +137,12 @@ class WSGIRequest(HttpRequest):
 
 
 class WSGIHandler(base.BaseHandler):
+    """
+    WSGI协议: application必须是一个可调用对象(类/函数)
+    Process: Server调用该Application对象, 具体请求有该 Application处理(__call__)
+    参数:environ, start_response
+    返回值: 一个可迭代对象
+    """
     # 系统启动的瞬间, 初始化
     request_class = WSGIRequest
 
@@ -174,6 +184,7 @@ def get_script_name(environ):
     the script name prior to any rewriting (so it's the script name as seen
     from the client's perspective), unless the FORCE_SCRIPT_NAME setting is
     set (to anything).
+    获取实际的物理 URI, 即某一个确定的 API 文件
     """
     if settings.FORCE_SCRIPT_NAME is not None:
         return settings.FORCE_SCRIPT_NAME
@@ -183,6 +194,9 @@ def get_script_name(environ):
     # rewrites. Unfortunately not every Web server (lighttpd!) passes this
     # information through all the time, so FORCE_SCRIPT_NAME, above, is still
     # needed.
+    # SCRIPT_URL: /u/rse/, 逻辑网络视图
+    # SCRIPT_URI: http://www.baidu.com/u/rse/
+    # SCRIPT_NAME: /sw/lib/w3s/u/rse/.www/index.html, 物理系统视图
     script_url = get_bytes_from_wsgi(environ, 'SCRIPT_URL', '')
     if not script_url:
         script_url = get_bytes_from_wsgi(environ, 'REDIRECT_URL', '')

@@ -35,24 +35,24 @@ def get_internal_wsgi_application():
     If settings.WSGI_APPLICATION is not set (is ``None``), return
     whatever ``django.core.wsgi.get_wsgi_application`` returns.
     """
-    # 1 默认
+    # 1 默认, 例如: unusebamboo.wsgi.application
     from django.conf import settings
     app_path = getattr(settings, 'WSGI_APPLICATION')
     if app_path is None:
         return get_wsgi_application()
 
     # 2 即: manage.py runserver实际上仍旧使用到了wsgi服务
+    #   实际上作为一个"钩子", 在调用get_wsgi_application之前, 进行用户自定义的配置
+    #   具体见: unusebamboo/wsgi.py文件
     try:
         # 导入wsgi.py并返回get_wsgi_application函数对象
-        # 实际上, 返回WSGIHandler对象
         return import_string(app_path)
     except ImportError as err:
         print('Error:', err)
         raise ImproperlyConfigured(
             "WSGI application '%s' could not be loaded; "
             "Error importing module." % app_path
-        )
-        #  ) from err
+        ) from err
 
 
 def is_broken_pipe_error():

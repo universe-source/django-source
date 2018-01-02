@@ -287,6 +287,7 @@ class BaseCommand:
         handle_default_options(options)
         try:
             # 一般在子类中调用该方法(core.management.commands.runserver)
+            # 这里调用当前类的execute方法(core.management.base)
             self.execute(*args, **cmd_options)
         except Exception as e:
             print('DebugException: ', __file__, ' msg:', e, os.getpid())
