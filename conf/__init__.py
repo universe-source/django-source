@@ -15,6 +15,7 @@ from django.conf import global_settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.deprecation import RemovedInDjango30Warning
 from django.utils.functional import LazyObject, empty
+from django.debug import MY
 
 ENVIRONMENT_VARIABLE = "DJANGO_SETTINGS_MODULE"
 
@@ -24,6 +25,13 @@ class LazySettings(LazyObject):
     A lazy proxy for either global Django settings or a custom settings object.
     The user can manually configure settings prior to using them. Otherwise,
     Django uses the settings module pointed to by DJANGO_SETTINGS_MODULE.
+    1 功能
+        1.1 利用empty(object())对象来判断self._wrapped是否已经初始化过
+        1.2 利用importlib来完成模块的导入工作
+        1.3 利用魔术方法来访问/设置settings的变量
+    2 参考: https://www.hongweipeng.com/index.php/archives/1370/
+    3 总结: 懒加载/延迟加载策略, 在用到的时候再加载, 这里使用LazyObject代理类,
+            当且仅当使用到时, 才会调用加载函数_setup
     """
     def _setup(self, name=None):
         """
@@ -31,6 +39,7 @@ class LazySettings(LazyObject):
         is used the first time settings are needed, if the user hasn't
         configured settings manually.
         """
+        # 1 DJANGO_SETTINGS_MODULE: 例如setting文件夹
         settings_module = os.environ.get(ENVIRONMENT_VARIABLE)
         if not settings_module:
             desc = ("setting %s" % name) if name else "settings"
@@ -39,7 +48,7 @@ class LazySettings(LazyObject):
                 "You must either define the environment variable %s "
                 "or call settings.configure() before accessing settings."
                 % (desc, ENVIRONMENT_VARIABLE))
-
+        # 2 见下面的类, 进行settings配置的导入工作
         self._wrapped = Settings(settings_module)
 
     def __repr__(self):
@@ -90,18 +99,21 @@ class LazySettings(LazyObject):
     @property
     def configured(self):
         """Return True if the settings have already been configured."""
-        # bamboo: 暂时不用了解, setting自定义设置
+        # 判断settings是否已经导入过
         return self._wrapped is not empty
 
 
 class Settings:
+    """导入settings并检查各个参数配置格式"""
     def __init__(self, settings_module):
         # update this dict from global settings (but only for ALL_CAPS settings)
+        # 1 django中的默认的静态配置, 见django/conf/global_settings.py文件
         for setting in dir(global_settings):
             if setting.isupper():
                 setattr(self, setting, getattr(global_settings, setting))
 
         # store the settings module in case someone later cares
+        # 2 导入settings模块, 并检查INSTALL_APPS等的格式信息
         self.SETTINGS_MODULE = settings_module
 
         mod = importlib.import_module(self.SETTINGS_MODULE)
@@ -125,6 +137,7 @@ class Settings:
         if not self.SECRET_KEY:
             raise ImproperlyConfigured("The SECRET_KEY setting must not be empty.")
 
+        # 3 检查时区以及 CONTENT_TYPE
         if self.is_overridden('DEFAULT_CONTENT_TYPE'):
             warnings.warn('The DEFAULT_CONTENT_TYPE setting is deprecated.', RemovedInDjango30Warning)
 

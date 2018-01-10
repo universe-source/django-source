@@ -65,11 +65,18 @@ class LimitedStream:
 
 class WSGIRequest(HttpRequest):
     def __init__(self, environ):
-        # 获取URL 资源对应的物理资源
+        # 1 Path_info为 URL 的path路径, script_name如果没有发生 URL 重写, 一般为空
         script_name = get_script_name(environ)
         path_info = get_path_info(environ)
-        print('Debug 2.0:', __file__, 'Script_name:{}, Path_info:{}'.format(
-            script_name, path_info))
+        print('Debug 2.1:',
+              '\n\tFunction: HttpRequest',
+              '\n\tLocation:', __file__,
+              '\n\tScript_name:', script_name,
+              '\n\tPath_info:', path_info,
+              '\n\tContent_type:', environ['CONTENT_TYPE'],
+              '\n\tContent_length:', environ['CONTENT_LENGTH'],
+              '\n\tRequest_method:', environ['REQUEST_METHOD'],
+              '\nEnd.')
         if not path_info:
             # Sometimes PATH_INFO exists, but is empty (e.g. accessing
             # the SCRIPT_NAME URL without a trailing slash). We really need to
@@ -79,6 +86,7 @@ class WSGIRequest(HttpRequest):
         self.environ = environ
         self.path_info = path_info
         # be careful to only replace the first slash in the path because of
+        # 双斜杠变为单斜杠
         # http://test/something and http://test//something being different as
         # stated in http://www.ietf.org/rfc/rfc2396.txt
         self.path = '%s/%s' % (script_name.rstrip('/'),
@@ -143,28 +151,45 @@ class WSGIHandler(base.BaseHandler):
     参数:environ, start_response
     返回值: 一个可迭代对象
     """
-    # 系统启动的瞬间, 初始化
+    # 继承HTTPRequest
     request_class = WSGIRequest
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # 加载中间件
+        # 0 加载中间件, 初始化middle chain, 并赋值首个处理函数: _middle_chain
         self.load_middleware()
 
     def __call__(self, environ, start_response):
+        print('Debug 2.0(在 WSGIHandler中处理每一个请求):',
+              '\n\t', __file__,
+              '\nEnd.')
+        # 1 一般为'/'
         set_script_prefix(get_script_name(environ))
-        # 0 发送信号, 通知处理, 该信号有django应用使用开发者receieve
+        # 2 发送信号, 通知处理, 该信号有django应用使用开发者receieve
         signals.request_started.send(sender=self.__class__, environ=environ)
+        # 3 根据environ来实例化WSGIRequest对象
         request = self.request_class(environ)
+        # 4 根据WSGIRequest返回HttpResponse, 见core.handlers.base.py文件
+        #   4.1 根据中间件来完成请求的匹配
         response = self.get_response(request)
+        print('Debug 2.3:',
+              '\n\tResponse Type:', type(response),
+              '\nEnd.')
 
         response._handler_class = self.__class__
 
+        # 5 构建状态码, response headers, cookie
         status = '%d %s' % (response.status_code, response.reason_phrase)
         response_headers = list(response.items())
         for c in response.cookies.values():
             response_headers.append(('Set-Cookie', c.output(header='')))
+        # 6 调用wsgiref/handlers.py中的start_response函数, 通过application传入
+        #   见wsgiref/handlers.py中的run函数
+        #   6.1 根据response_headers构建Headers类(wsgiref/headers.py)
+        #   6.2 判断status
+        #   6.3 返回stdout, 用于写入response数据
         start_response(status, response_headers)
+        # 7 返回文件流
         if getattr(response, 'file_to_stream', None) is not None and environ.get('wsgi.file_wrapper'):
             response = environ['wsgi.file_wrapper'](response.file_to_stream)
         return response
@@ -194,6 +219,7 @@ def get_script_name(environ):
     # rewrites. Unfortunately not every Web server (lighttpd!) passes this
     # information through all the time, so FORCE_SCRIPT_NAME, above, is still
     # needed.
+    # 仅仅在mode_rewrite中才有值
     # SCRIPT_URL: /u/rse/, 逻辑网络视图
     # SCRIPT_URI: http://www.baidu.com/u/rse/
     # SCRIPT_NAME: /sw/lib/w3s/u/rse/.www/index.html, 物理系统视图

@@ -62,13 +62,15 @@ DEFAULT_LOGGING = {
 
 
 def configure_logging(logging_config, logging_settings):
+    # 1 默认情况下: logging_config=='logging.config.dictConfig'
     if logging_config:
         # First find the logging configuration function ...
         logging_config_func = import_string(logging_config)
-
+        # 2 初始化静态的日志配置(利用字典来进行日志配置)
         logging.config.dictConfig(DEFAULT_LOGGING)
 
         # ... then invoke it with the logging settings
+        # 3 加载用户自定义的日志配置,dictConfig类的实例化, 覆盖2中的配置
         if logging_settings:
             logging_config_func(logging_settings)
 

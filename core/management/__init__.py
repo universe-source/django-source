@@ -15,6 +15,7 @@ from django.core.management.base import (
 from django.core.management.color import color_style
 from django.utils import autoreload
 from django.utils.encoding import force_text
+from django.debug import MY
 
 
 def find_commands(management_dir):
@@ -153,6 +154,7 @@ class ManagementUtility:
         self.prog_name = os.path.basename(self.argv[0])
         if self.prog_name == '__main__.py':
             self.prog_name = 'python -m django'
+        # 例如['manage.py', 'runserver', '0.0.0.0:8080']
         self.settings_exception = None
 
     def main_help_text(self, commands_only=False):
@@ -196,8 +198,10 @@ class ManagementUtility:
         """
         # Get commands outside of try block to prevent swallowing exceptions
         commands = get_commands()
-        import json
-        print('Debug2: {} commands:'.format(__file__), json.dumps(commands, indent=2))
+        #  import json
+        #  data = json.dumps(commands, indent=2)
+        data = list(commands.keys())
+        MY(2, __file__, 'commands:', data)
         try:
             # a.1 这里runserver的默认app_name, 作为一个应用存在: contrib.staticfiles
             #     此时该值作为一个字符串
@@ -306,6 +310,7 @@ class ManagementUtility:
         Given the command-line arguments, figure out which subcommand is being
         run, create a parser appropriate to that command, and run it.
         """
+        # 1 Subcommand: 子程序名, 默认为help, 见上面定义
         try:
             subcommand = self.argv[1]
         except IndexError:
@@ -314,7 +319,7 @@ class ManagementUtility:
         # Preprocess options to extract --settings and --pythonpath.
         # These options could affect the commands that are available, so they
         # must be processed early.
-        # 处理参数
+        # 2 处理和解析参数
         parser = CommandParser(None, usage="%(prog)s subcommand [options] [args]", add_help=False)
         parser.add_argument('--settings')
         parser.add_argument('--pythonpath')
@@ -324,13 +329,21 @@ class ManagementUtility:
             handle_default_options(options)
         except CommandError:
             pass  # Ignore any option errors at this point.
+        MY(1.0, __file__, '解析后的参数,',
+              '\n\toptions:', options,
+              '\n\targs:', args)
 
+        # 3 LazySetting对象, __getattr__/__setattr__方法,完成INSTALLED_APPS赋值
+        #   懒加载.
         try:
             settings.INSTALLED_APPS
         except ImproperlyConfigured as exc:
             self.settings_exception = exc
 
-        # 调用LazySettings类中的configured
+        # django.setup()
+        #   4.1 配置日志
+        #   4.2 加载自定义模块
+        #   4.3 加载model模块
         if settings.configured:
             # Start the auto-reloading dev server even if the code is broken.
             # The hardcoded condition is a code smell but we can't rely on a
@@ -356,8 +369,8 @@ class ManagementUtility:
                         self.argv.remove(_arg)
 
             # In all other cases, django.setup() is required to succeed.
+            # 重新导入所有配置信息
             else:
-                # 回到初始功能点, 开始正常工作, 非runserver以外的所有功能
                 django.setup()
 
         self.autocomplete()

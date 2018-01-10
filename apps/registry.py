@@ -15,6 +15,8 @@ class Apps:
     A registry that stores the configuration of installed applications.
 
     It also keeps track of models, e.g. to provide reverse relations.
+    说明: 已安装应用的注册表
+    功能: 存储配置信息, 自省, 维护模型列表
     """
 
     def __init__(self, installed_apps=()):
@@ -82,6 +84,7 @@ class Apps:
             self.loading = True
 
             # Phase 1: initialize app configs and import app modules.
+            # 1.1 遍历INSTALL_APPS列表, 并注册 AppConfig 类
             for entry in installed_apps:
                 if isinstance(entry, AppConfig):
                     app_config = entry
@@ -96,6 +99,7 @@ class Apps:
                 app_config.apps = self
 
             # Check for duplicate app names.
+            # 1.2 检查是否重名的apps
             counts = Counter(
                 app_config.name for app_config in self.app_configs.values())
             duplicates = [
@@ -108,6 +112,7 @@ class Apps:
             self.apps_ready = True
 
             # Phase 2: import models modules.
+            # 2 导入module中的models
             for app_config in self.app_configs.values():
                 app_config.import_models()
 
@@ -116,6 +121,7 @@ class Apps:
             self.models_ready = True
 
             # Phase 3: run ready() methods of app configs.
+            # 3 运行每一个modules中的ready函数
             for app_config in self.get_app_configs():
                 app_config.ready()
 

@@ -41,6 +41,7 @@ class CommandParser(ArgumentParser):
     Customized ArgumentParser class to improve some error messages and prevent
     SystemExit in several occasions, as SystemExit is unacceptable when a
     command is called programmatically.
+    使用 argparse 来解析命令行参数, 其中对parse_args/error进行重写
     """
     def __init__(self, cmd, **kwargs):
         self.cmd = cmd

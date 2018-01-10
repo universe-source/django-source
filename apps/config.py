@@ -8,12 +8,22 @@ MODELS_MODULE_NAME = 'models'
 
 
 class AppConfig:
-    """Class representing a Django application and its configuration."""
+    """Class representing a Django application and its configuration.
+    参考: http://python.usyiyi.cn/translate/django_182/ref/applications.html
+    应用: 表示一个python包, 提供某些功能的集合, 包含: model/view/template等
+    配置: 子类化AppConfig, 并将应用放入到INSTALLED_APPS中, 之后根据default_app_config
+        判断加载子类(例如UserAppConfig), 还是基类AppConfig.
+    初始化: 
+        在类方法create中实例化, 有点类似"单例模式"的设计;
+        具体见create函数;
+    """
 
     def __init__(self, app_name, app_module):
+        # 完整路径
         # Full Python path to the application e.g. 'django.contrib.admin'.
         self.name = app_name
 
+        # 应用的根模块对象(importlib来完成)
         # Root module for the application e.g. <module 'django.contrib.admin'
         # from 'django/contrib/admin/__init__.py'>.
         self.module = app_module
@@ -25,16 +35,19 @@ class AppConfig:
         # The following attributes could be defined at the class level in a
         # subclass, hence the test-and-set pattern.
 
+        # 应用缩写
         # Last component of the Python path to the application e.g. 'admin'.
         # This value must be unique across a Django project.
         if not hasattr(self, 'label'):
             self.label = app_name.rpartition(".")[2]
 
         # Human-readable name for the application e.g. "Admin".
+        # 应用适合阅读的名称
         if not hasattr(self, 'verbose_name'):
             self.verbose_name = self.label.title()
 
         # Filesystem path to the application directory e.g.
+        # 应用的文件系统路径
         # '/path/to/django/contrib/admin'.
         if not hasattr(self, 'path'):
             self.path = self._path_from_module(app_module)
@@ -42,6 +55,7 @@ class AppConfig:
         # Module containing models e.g. <module 'django.contrib.admin.models'
         # from 'django/contrib/admin/models.py'>. Set by import_models().
         # None if the application doesn't have a models module.
+        # 应用的模型模块
         self.models_module = None
 
         # Mapping of lower case model names to model classes. Initially set to
@@ -82,7 +96,11 @@ class AppConfig:
     def create(cls, entry):
         """
         Factory that creates an app config from an entry in INSTALLED_APPS.
+        导入模块并实例化(工厂方法):
+        1 默认应用: 导入-->实例化AppConfig类
+        2 自定义应用: 路径拆解-->导入-->验证-->实例化AppConfig的子类
         """
+        # 1 导入模块
         try:
             # If import_module succeeds, entry is a path to an app module,
             # which may specify an app config class with default_app_config.
@@ -109,8 +127,13 @@ class AppConfig:
                 # Otherwise, it simply uses the default app config class.
                 return cls(entry, module)
             else:
+                # apps.user.appconfig.UserAppConfig变为:
+                # (apps.user.appconfig, ., UserAppConfig)
                 mod_path, _, cls_name = entry.rpartition('.')
 
+        # 2 如果配置了default_app_config, 其中
+        #   mod_path: 子类所在的模块名
+        #   cls_name: 子类名
         # If we're reaching this point, we must attempt to load the app config
         # class located at <mod_path>.<cls_name>
         mod = import_module(mod_path)
@@ -132,6 +155,7 @@ class AppConfig:
 
         # Obtain app name here rather than in AppClass.__init__ to keep
         # all error checking for entries in INSTALLED_APPS in one place.
+        # 3 获取子类中用户自定义的应用路径名称, 例如: apps.user
         try:
             app_name = cls.name
         except AttributeError:
@@ -149,10 +173,12 @@ class AppConfig:
             )
 
         # Entry is a path to an app config class.
+        # 4 实例化AppConfig
         return cls(app_name, app_module)
 
     def get_model(self, model_name, require_ready=True):
         """
+        返回具有给定model_name的 Model.
         Return the model with the given case-insensitive model_name.
 
         Raise LookupError if no model exists with this name.
@@ -189,6 +215,7 @@ class AppConfig:
             yield model
 
     def import_models(self):
+        """导入每一个应用中的所有models, 注意models和modules的区别"""
         # Dictionary of models for this app, primarily maintained in the
         # 'all_models' attribute of the Apps this AppConfig is attached to.
         self.models = self.apps.all_models[self.label]
@@ -200,4 +227,5 @@ class AppConfig:
     def ready(self):
         """
         Override this method in subclasses to run code when Django starts.
+        在子类中被重写, 空的函数体居然可以不写pass, 好吧
         """

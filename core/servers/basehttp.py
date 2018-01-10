@@ -98,6 +98,22 @@ class ServerHandler(simple_server.ServerHandler):
 
 
 class WSGIRequestHandler(simple_server.WSGIRequestHandler):
+    """
+    1 利用 WSGIServer 进行socket监听, 对于每一个连接, 最终会调用该类进行处理.
+    2 wsgiref(WSGIRequestHandler)->httpserver(BaseHTTPRequestHandler)
+        ->socketserver(StreamRequestHandler)->BaseRequestHandler
+    其中BaseRequesthandler实例化逻辑:
+        setup(): 在StreamRequestHandler中被重写
+            connection: socket request;
+            server: 传入的WSGIServer实例本身(藏有 WSGI Application);
+            rfile/wfile: file decriptor;
+        handle(): 在 WSGIRequestHandler中被重写
+            利用rfile读取请求数据;
+            parse_request解析;
+            实例化ServerHandler, 在run中导入WSGIRequestHandler和WSGI Application;
+        finish(): 在StreamRequestHandler中被重写
+            close wfile and rfile, 表示服务器关闭连接(进入四次握手)
+    """
     protocol_version = 'HTTP/1.1'
 
     def address_string(self):
@@ -166,17 +182,36 @@ class WSGIRequestHandler(simple_server.WSGIRequestHandler):
             return
 
         # 2 get_environ获取与客户端请求相关信息
+        #   继承体系:ServerHandler->simple_server.ServerHandler
+        #           ->SimpleHandler->BaseHandler
+        #   __init__: wsgiref/handlers/中的初始化函数
+        #   get_environ: 当前类override, 并引用父类, 返回当前环境变量信息
+        #   rfile/wfile/get_stderr(): stdin/stdout/stderr, 传入environ中, 被handler使用
         handler = ServerHandler(
             self.rfile, self.wfile, self.get_stderr(), self.get_environ()
         )
         handler.request_handler = self      # backpointer for logging
-        # 3 运行run, 传递application, WSGIHandler, 用于连接Web Server和python应用服务
-        #   继承体系:ServerHandler->simple_server.ServerHandler->BaseHandler
-        #   封装: 封装了application--WSGIHandler实例, application()调用__call__来完成
+        # 3 父类的run, 传递application, WSGIHandler, 用于连接Web Server和python应用服务
+        #   见文件wsgiref/handlers.py文件(目前wsgiref不能在pip3环境中单独安装)
+        #   3.1 设置 WSGI 协议需要的信息(set_environ), 对self.environ(请求数据)的赋值
+        #   3.2 WSGIHandler(env, start_response回调函数)处理请求(environ)和响应, 进入
+        #       core/handlers/wsgi.py文件
+        #   3.3 返回响应包信息(finish_reponse)
         handler.run(self.server.get_app())
 
 
 def run(addr, port, wsgi_handler, ipv6=False, threading=False, server_cls=WSGIServer):
+    """
+    addr: host地址
+    port: 端口
+    wsgi_handler: WSGI Application 实例对象, 处理Request/Response, 见文件
+            core/servers/basehttp.py(get_wsgi_application)
+            core/wsgi.py(WSGIHandler)
+    ipv6: 是否支持ipv6
+    threading: 是否允许多线程
+    WSGIServer: WSGI调用的封装类, 会使用wsgi_handler, 进入socket监听, 永真循环
+            换言之, WSGIServer作为监听服务器, WSGIHandler作为每一个请求线程处理者
+    """
     # 1 WSGIServer实例对象
     server_address = (addr, port)
     if threading:
@@ -186,7 +221,8 @@ def run(addr, port, wsgi_handler, ipv6=False, threading=False, server_cls=WSGISe
         httpd_cls = type('WSGIServer', (socketserver.ThreadingMixIn, server_cls), {})
     else:
         httpd_cls = server_cls
-    # 2 初始化和实例化"服务类型"
+    # 2 初始化和实例化"服务类型", WSGIRequestHandler会在finish_request中被调用,
+    #   处理请求, 其中前两个参数为父类预置的类
     httpd = httpd_cls(server_address, WSGIRequestHandler, ipv6=ipv6)
     if threading:
         # ThreadingMixIn.daemon_threads indicates how threads will behave on an
@@ -201,11 +237,19 @@ def run(addr, port, wsgi_handler, ipv6=False, threading=False, server_cls=WSGISe
     # 4 运行python库socketserver中的方法(利用selector来完成网络处理)
     #   a. 选择合适的服务类型, 例如WSGIServer->wsgiref.WSGIServer->http.TCPServer
     #   b. 创建请求处理器(RequestHandler), 使用handle来处理客户端发送过来的连接
-    #   c. 调用server_forever多次处理用户请求
+    #   c. 调用BaseServer.server_forever多次处理用户请求, TCP层次的Listen和Thread:
     #       c.1: 实例本身绑定到select的read事件集中
     #       c.2: 使用select完成多路复用
-    #       c.3: 一旦 Read 事件触发, 获取请求, 处理请求
-    #       c.4: 请求会在ThreadingMinIn以多线程方式处理(如果使用的话), 否则串行
-    #       c.5: 每一个请求在finish_request都会实例化WSGIRequestHandler
-    #       c.6: handler->顶层基类 BaseRequestHandler 实例化会立刻调用setup/handle
+    #       c.3: Read 事件, 获取和处理请求(BaseServer._handle_request_noblock)
+    #           c.3.1 获取请求socket和对端信息(BaseServer.get_request()/accept)
+    #           c.3.2 处理请求(ThreadingMixIn.process_request)
+    #               c.3.2.1 创建线程
+    #               c.3.2.2 调用finish_request, 实例化 WSGIRequestHandler, 钩子,
+    #                   将WSGIServer传入WSGERequesthandler, 互相依赖,(socketserver.py)
+    #                       i setup
+    #                       ii handle(WSGIRequestHandler重写了)
+    #                       iii finish
+    #               c.3.2.3 关闭请求(线程结束之后触发, TCPServer中的shutdown_request)
+    #           c.3.3 如果发生异常, 关闭请求(TCPServer中shutdown_request)
+    #   d. 继续下一次 loop (参考Socket Accept)
     httpd.serve_forever()

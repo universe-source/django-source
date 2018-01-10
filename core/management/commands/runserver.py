@@ -70,6 +70,7 @@ class Command(BaseCommand):
 
     def get_handler(self, *args, **options):
         """Return the default WSGI handler for the runner."""
+        # 返回一个"可调用"的实现 WSGI 协议的实例, 用于处理Request/Response
         return get_internal_wsgi_application()
 
     def handle(self, *args, **options):
@@ -159,12 +160,14 @@ class Command(BaseCommand):
         try:
             # 2.1 获取handler, 实际获取get_internal_wsgi_application 返回application
             #       类型: WSGIHandler(实现WSGI 协议的对象)
-            #       功能: 处理 Request请求
+            #       功能: 处理 Request/Resonse, 见WSGIHandler类(可调用)
+            #       调用: 其中handler调用: handler(environ, start_response)
             handler = self.get_handler(*args, **options)
             # 2.2 runserver启动
             # 开始正式进入core.servers.basehttp.run
             # HTTP, 其中server_cls=WSGIServer使用wsgiref模块来实现HTTP
             # 功能, 类: wsgiref.simple_server.WSGIServer
+            # 最终会通过handler来处理每一个请求
             run(self.addr, int(self.port), handler,
                 ipv6=self.use_ipv6, threading=threading, server_cls=self.server_cls)
         except socket.error as e:

@@ -32,9 +32,14 @@ class BaseHandler:
         self._response_middleware = []
         self._exception_middleware = []
 
+        # 1 封装self._get_response函数, handler是一个装饰器返回的封装函数
+        #   如果没有任何Middle, 则处理该默认函数
         handler = convert_exception_to_response(self._get_response)
+        # 2 遍历所有的 MIDDLEWARE, 逆序构造中间件链条
         for middleware_path in reversed(settings.MIDDLEWARE):
             middleware = import_string(middleware_path)
+            # 2.0 中间件工厂, 参考1.20官网传入handler(get_response方法),
+            #   返回封装内部函数(闭包用法)
             try:
                 mw_instance = middleware(handler)
             except MiddlewareNotUsed as exc:
@@ -50,10 +55,16 @@ class BaseHandler:
                     'Middleware factory %s returned None.' % middleware_path
                 )
 
+            # 2.1 参考django官网关于middle的介绍
+            # process_view, 在调用view之前调用
+            #   返回None: 调用view, 返回HttpReponse, 本次请求处理完毕
+            #   返回HttpResponse: 没必要调用view了, 直接返回
             if hasattr(mw_instance, 'process_view'):
                 self._view_middleware.insert(0, mw_instance.process_view)
+            # 2.2 用于模板响应
             if hasattr(mw_instance, 'process_template_response'):
                 self._template_response_middleware.append(mw_instance.process_template_response)
+            # 2.3 当且仅当view抛出异常时调用
             if hasattr(mw_instance, 'process_exception'):
                 self._exception_middleware.append(mw_instance.process_exception)
 
@@ -61,6 +72,9 @@ class BaseHandler:
 
         # We only assign to this when initialization is complete as it is used
         # as a flag for initialization being complete.
+        # 3 调用默认的_get_response
+        #   MIDDLE 链第一个的middle封装函数: 外层封装了三层, 处理中间件逻辑, 并调用
+        #       _get_response, 一般情况下返回 None
         self._middleware_chain = handler
 
     def make_view_atomic(self, view):
@@ -74,19 +88,24 @@ class BaseHandler:
         return get_exception_response(request, resolver, status_code, exception, self.__class__)
 
     def get_response(self, request):
-        """Return an HttpResponse object for the given HttpRequest."""
+        """Return an HttpResponse object for the given HttpRequest.
+        1 设置 URLS 根文件
+        2 处理 Request
+        3 返回 reponse 实例(HttpResponse)
+        """
         # Setup default url resolver for this thread
+        # 1 URLS 根文件
         set_urlconf(settings.ROOT_URLCONF)
-
+        # 2 middle chain中的第一个处理函数开始流失经过所有middle, 返回最终的response
         response = self._middleware_chain(request)
-
+        # 3 返回最终的response, 不会空
         response._closable_objects.append(request)
 
         # If the exception handler returns a TemplateResponse that has not
         # been rendered, force it to be rendered.
         if not getattr(response, 'is_rendered', True) and callable(getattr(response, 'render', None)):
             response = response.render()
-
+        # 4 记录日志信息
         if response.status_code == 404:
             logger.warning(
                 'Not Found: %s', request.path,
