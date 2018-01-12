@@ -201,7 +201,7 @@ class ManagementUtility:
         #  import json
         #  data = json.dumps(commands, indent=2)
         data = list(commands.keys())
-        MY(2, __file__, 'commands:', data)
+        MY(2, '\n\tcommands:', data)
         try:
             # a.1 这里runserver的默认app_name, 作为一个应用存在: contrib.staticfiles
             #     此时该值作为一个字符串
@@ -329,9 +329,7 @@ class ManagementUtility:
             handle_default_options(options)
         except CommandError:
             pass  # Ignore any option errors at this point.
-        MY(1.0, __file__, '解析后的参数,',
-              '\n\toptions:', options,
-              '\n\targs:', args)
+        MY(1.0, '解析后的参数:', '\n\toptions:', options, '\n\targs:', args)
 
         # 3 LazySetting对象, __getattr__/__setattr__方法,完成INSTALLED_APPS赋值
         #   懒加载.
@@ -348,6 +346,7 @@ class ManagementUtility:
             # Start the auto-reloading dev server even if the code is broken.
             # The hardcoded condition is a code smell but we can't rely on a
             # flag on the command class because we haven't located it yet.
+            # a 重新导入所有配置信息
             if subcommand == 'runserver' and '--noreload' not in self.argv:
                 try:
                     autoreload.check_errors(django.setup)()
@@ -369,13 +368,22 @@ class ManagementUtility:
                         self.argv.remove(_arg)
 
             # In all other cases, django.setup() is required to succeed.
-            # 重新导入所有配置信息
+            # b 配置日志, 加载自定义模块, models模块, 使用Application
             else:
                 django.setup()
 
         self.autocomplete()
-        print('==========autocomplete({})============'.format(os.getpid()))
 
+        # 5 fetch_command, 返回不同的Command对象, 根据不同的参数运行不同的后台任务,
+        #   5.1 调用各个 BaseCommand 子类的方法来完成对应的业务, 例如:
+        #       runserver.py.Command
+        #       flush.py.Command
+        #       and so on
+        #   5.2 不同Command流程(handle相当于钩子):
+        #       run_from_argv, 进行参数解析和配置, 调用execute
+        #       execute, 设置环境变量,运行handle, 在父类实现大部分逻辑;
+        #       handle, 进入run, 由各个子类rewrite, (主要处理逻辑)
+        #       run_from_argv, 处理善后
         if subcommand == 'help':
             if '--commands' in args:
                 sys.stdout.write(self.main_help_text(commands_only=True) + '\n')
@@ -383,14 +391,14 @@ class ManagementUtility:
                 sys.stdout.write(self.main_help_text() + '\n')
             else:
                 self.fetch_command(options.args[0]).print_help(self.prog_name, options.args[0])
-        # Special-cases: We want 'django-admin --version' and
-        # 'django-admin --help' to work, for backwards compatibility.
         elif subcommand == 'version' or self.argv[1:] == ['--version']:
+            # Special-cases: We want 'django-admin --version' and
+            # 'django-admin --help' to work, for backwards compatibility.
             sys.stdout.write(django.get_version() + '\n')
         elif self.argv[1:] in (['--help'], ['-h']):
             sys.stdout.write(self.main_help_text() + '\n')
         else:
-            print('Debug1: {} current subcommand:'.format(__file__), subcommand, ' argv: ', self.argv)
+            MY(1, '\n\tShell subcommand:', subcommand, ' Argv:', self.argv)
             # 执行一个django-admin命令, 当然也可以自定义该命令
             # 该函数: django.core.management.base
             self.fetch_command(subcommand).run_from_argv(self.argv)

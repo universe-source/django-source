@@ -11,6 +11,7 @@ from django.core.servers.basehttp import (
     WSGIServer, get_internal_wsgi_application, run,
 )
 from django.utils import autoreload
+from django.debug import MY
 
 
 naiveip_re = re.compile(r"""^(?:
@@ -113,20 +114,19 @@ class Command(BaseCommand):
 
         # 1 main对inner_run做了一层包装, 真正的 HTTP Server处理逻辑见inner_run函数
         if use_reloader:
-            # 1.0 未设置--noreload时执行, 封装 self.inner_run, 创建一个子线程
-            print('Debug4: {} reloader:'.format(__file__), options)
+            # 1.0 未设置--noreload时执行, 封装 self.inner_run, 创建一个新的子线程
+            MY(4, '\n\tReloader:', options)
             autoreload.main(self.inner_run, None, options)
         else:
             # 1.1 inner_run
-            print('Debug4: {} inner(noreloader):'.format(__file__), options)
+            MY(4, '\n\tUnloader(inner):', options)
             self.inner_run(None, **options)
 
     def inner_run(self, *args, **options):
         # 1 配置工作
         # If an exception was silenced in ManagementUtility.execute in order
         # to be raised in the child process, raise it now.
-        print('Debug6: {} 正式执行run函数'.format(__file__), os.getpid())
-        print('Debug6.0: ---------------正常输出--------------')
+        MY('Running', '\n\t开启运行(child线程)')
         autoreload.raise_last_exception()
 
         # django 默认开启threading, 允许在开发服务器中使用多线程

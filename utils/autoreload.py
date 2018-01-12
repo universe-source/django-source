@@ -40,6 +40,7 @@ import _thread
 from django.apps import apps
 from django.conf import settings
 from django.core.signals import request_finished
+from django.debug import MY
 
 # This import does nothing, but it's necessary to avoid some race conditions
 # in the threading module. See http://code.djangoproject.com/ticket/2330 .
@@ -263,6 +264,9 @@ def ensure_echo_on():
 
 
 def reloader_thread():
+    """
+    重新加载, 每一次重新加载都是创建一个新的子线程
+    """
     ensure_echo_on()
     if USE_INOTIFY:
         fn = inotify_code_changed
@@ -286,26 +290,27 @@ def restart_with_reloader():
         # 这里的args和父进程的命令一般是一致的
         exit_code = subprocess.call(args, env=new_environ)
         if exit_code != 3:
-            print('DebugEnd: {} 子进程杀死但是父进程没有死亡(kill child-pid),  exit: '.format(__file__), exit_code)
+            MY('restart', '\n\t子进程杀死但是父进程没有死亡(kill child-pid)',
+               '\n\texit: ', exit_code)
             return exit_code
 
 
 def python_reloader(main_func, args, kwargs):
-    # 当存在reload时, 创建子进程, 这里两个条件, 将父子进程分开来
+    """
+    main_func: check_errors, 其中check_errors包装了inner_run
+    """
     if os.environ.get("RUN_MAIN") == "true":
-        print('Debug5.5: {} start_new_thread, 在第二个子进程中打印并进入循环'.format(
-            __file__))
-        #  子进程创建一个新的线程TID, 线程继续执行core.management.commands.runserver.inner_run函数
+        # 当存在reload时, 创建子进程, 这里两个条件, 将父子进程分开来
+        MY('5', '\n\t准备进入子线程(main线程)')
+        #  子进程创建一个新的线程TID, 线程继续执行main_func
         _thread.start_new_thread(main_func, args, kwargs)
-        print('Debug5.6: {} 创建完线程'.format(__file__), os.getpid())
         try:
             reloader_thread()
         except KeyboardInterrupt:
             pass
     else:
         try:
-            print('Debug5: {} 准备fork新的进程, 仅仅在父进程打印'.format(__file__),
-                  os.getpid())
+            MY(5, '\n\tFork新的进程, 目前在父进程中.')
             exit_code = restart_with_reloader()
             if exit_code < 0:
                 os.kill(os.getpid(), -exit_code)
@@ -327,6 +332,7 @@ def jython_reloader(main_func, args, kwargs):
 
 
 def main(main_func, args=None, kwargs=None):
+    """在runserver.py(run)中调用, 自动重新加载配置"""
     if args is None:
         args = ()
     if kwargs is None:
@@ -336,6 +342,7 @@ def main(main_func, args=None, kwargs=None):
     else:
         reloader = python_reloader
 
-    # 这里这个装饰函数用的非常好啊
+    # 这里这个装饰函数用的非常好啊, 利用check_errors来保证inner_func
     wrapped_main_func = check_errors(main_func)
+    # 调用reloader函数, 传递check_errors
     reloader(wrapped_main_func, args, kwargs)

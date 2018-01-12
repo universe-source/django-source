@@ -12,6 +12,7 @@ from django.core import checks
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.color import color_style, no_style
 from django.db import DEFAULT_DB_ALIAS, connections
+from django.debug import MY
 
 
 class CommandError(Exception):
@@ -284,14 +285,14 @@ class BaseCommand:
         cmd_options = vars(options)
         # Move positional args out of options to mimic legacy optparse
         args = cmd_options.pop('args', ())
-        print('Debug3: {} execute command, args:{}, options:{}'.format(__file__, args, options))
+        MY('3', 'Execute Command:', '\n\targs:', args, '\n\toptions:', options)
         handle_default_options(options)
         try:
             # 一般在子类中调用该方法(core.management.commands.runserver)
             # 这里调用当前类的execute方法(core.management.base)
             self.execute(*args, **cmd_options)
         except Exception as e:
-            print('DebugException: ', __file__, ' msg:', e, os.getpid())
+            MY('Exception', '\n\tExecute exception:', e)
             if options.traceback or not isinstance(e, CommandError):
                 raise
 
@@ -305,7 +306,7 @@ class BaseCommand:
             try:
                 # 表示整个runserver退出, 抛出任何错误都会在这里执行此代码
                 connections.close_all()
-                print('Debug End: {} close connection.======'.format(__file__))
+                MY('End', 'Close connection')
             except ImproperlyConfigured:
                 # Ignore if connections aren't setup at this point (e.g. no
                 # configured settings).
